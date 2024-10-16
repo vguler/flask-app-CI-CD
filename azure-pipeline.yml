@@ -1,0 +1,197 @@
+trigger: none
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  imageName: 'imaginetest1'                         
+  imageTag: 'latest'                                
+  containerRegistry: 'vladandreifinalproject.azurecr.io'  
+  resourceGroup: 'finalProjectRG'                   
+  azureServiceConnection: 'finalProjectServiceConnection' 
+  terraformWorkingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+  vm_name: 'terraform-vm'  
+
+stages:
+- stage: BuildAndPush
+  displayName: 'Build and Push Docker Image'
+  jobs:
+  - job: BuildAndPush
+    steps:
+    - checkout: self
+
+    - script: |
+        echo "Building Docker image..."
+        docker build -t $(imageName):$(imageTag) .
+        echo "Tagging Docker image for Azure Container Registry..."
+        docker tag $(imageName):$(imageTag) $(containerRegistry)/$(imageName):$(imageTag)
+      displayName: 'Build Docker Image'
+
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          echo "Logging into Azure Container Registry..."
+          az acr login --name vladandreifinalproject
+          
+          echo "Pushing Docker image to ACR..."
+          docker push $(containerRegistry)/$(imageName):$(imageTag)
+      displayName: 'Push Docker Image to ACR'
+
+
+- stage: DeployToContainerInstance
+  displayName: 'Deploy to Azure Container Instance'
+  dependsOn: BuildAndPush
+  jobs:
+  - job: Deploy
+    steps:
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          echo "Activating admin user on ACR..."
+          az acr update -n vladandreifinalproject --admin-enabled true
+      displayName: 'Activate Admin User on ACR'
+
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          echo "Logging into Azure Container Registry..."
+          az acr login --name vladandreifinalproject
+
+          echo "Fetching credentials for ACR..."
+          registry_username=$(az acr credential show --name vladandreifinalproject --query "username" --output tsv)
+          registry_password=$(az acr credential show --name vladandreifinalproject --query "passwords[0].value" --output tsv)
+
+          echo "Deploying Docker image to Azure Container Instance..."
+          az container create \
+            --resource-group $(resourceGroup) \
+            --name flask-container \
+            --image $(containerRegistry)/$(imageName):$(imageTag) \
+            --cpu 1 \
+            --memory 1 \
+            --dns-name-label flask-app-deployment \
+            --ports 5000 \
+            --registry-login-server $(containerRegistry) \
+            --registry-username $registry_username \
+            --registry-password $registry_password
+      displayName: 'Deploy Flask App to Azure Container Instance with ACR Authentication'
+
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          echo "Testing liveness endpoint for ACI..."
+          container_ip=$(az container show --resource-group $(resourceGroup) --name flask-container --query "ipAddress.ip" --output tsv)
+        
+          echo "Waiting for container to be ready..."
+          sleep 30
+        
+          response=$(curl -s -o /dev/null -w "%{http_code}" http://$container_ip:5000/liveness)
+
+          if [ "$response" -eq 200 ]; then
+            echo "Liveness endpoint in ACI is healthy."
+          else
+            echo "Liveness endpoint check in ACI failed with response code $response."
+            exit 1  
+          fi
+      displayName: 'Test Liveness Endpoint of Flask App in ACI'
+
+- stage: DeployToKubernetes
+  displayName: 'Deploy to Kubernetes Cluster'
+  dependsOn: BuildAndPush
+  jobs:
+  - job: Deploy
+    steps:
+    - task: Kubernetes@1
+      inputs:
+        connectionType: 'Azure Resource Manager'
+        azureSubscriptionEndpoint: $(azureServiceConnection)
+        azureResourceGroup: $(resourceGroup)
+        kubernetesCluster: 'cluster1'  
+        namespace: 'default'  
+        command: apply
+        useConfigurationFile: true  
+        configuration: 'kubernetes-deployment.yaml'  
+      displayName: 'Deploy Flask App to Kubernetes with External YAML File'
+
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          echo "Testing liveness endpoint for Kubernetes at IP 172.205.95.253..."
+
+          # Verifică liveness direct la IP-ul furnizat
+          service_ip="172.205.95.253"
+          echo "Testing liveness endpoint at http://$service_ip:5000/liveness"
+          response=$(curl -s -o /dev/null -w "%{http_code}" http://$service_ip:5000/liveness)
+
+          if [ "$response" -eq 200 ]; then
+            echo "Liveness endpoint in Kubernetes is healthy."
+          else
+            echo "Liveness endpoint check in Kubernetes failed with response code $response."
+            exit 1  
+          fi
+      displayName: 'Test Liveness Endpoint of Flask App in Kubernetes with Direct IP'
+
+
+- stage: DeployWithTerraform
+  displayName: 'Deploy VM using Terraform'
+  dependsOn: BuildAndPush
+  jobs:
+  - job: TerraformDeploy
+    steps:
+    - checkout: self  
+
+    - task: TerraformCLI@0
+      inputs:
+        command: 'init'
+        workingDirectory: '$(terraformWorkingDirectory)'
+        azureSubscription: $(azureServiceConnection)
+      displayName: 'Initialize Terraform'
+
+    - task: TerraformCLI@0
+      inputs:
+        command: 'plan'
+        workingDirectory: '$(terraformWorkingDirectory)'
+        azureSubscription: $(azureServiceConnection)
+      displayName: 'Terraform Plan'
+
+    - task: TerraformCLI@0
+      inputs:
+        command: 'apply'
+        workingDirectory: '$(terraformWorkingDirectory)'
+        commandOptions: '-auto-approve'
+        azureSubscription: $(azureServiceConnection)
+      displayName: 'Terraform Apply'
+
+    - script: |
+        echo "Fetching Public IP of the deployed VM..."
+        cd $(terraformWorkingDirectory)
+        ip_address=$(terraform output -raw public_ip)
+        echo "Public IP address is: $ip_address"
+
+        # Așteaptă 60 de secunde pentru a permite ca aplicația Flask să fie disponibilă pe VM
+        echo "Waiting for the Flask app to be available on the VM..."
+        sleep 60
+
+        echo "Testing liveness endpoint at http://$ip_address:5000/liveness"
+        response=$(curl -s -o /dev/null -w "%{http_code}" http://$ip_address:5000/liveness)
+
+        if [ "$response" -eq 200 ]; then
+          echo "Liveness endpoint on Terraform VM is healthy."
+        else
+          echo "Liveness endpoint check on Terraform VM failed with response code $response."
+          exit 1  
+        fi
+      displayName: 'Test Liveness Endpoint of Flask App on Terraform VM'

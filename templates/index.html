@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Welcome to our final presentation!">
+    <title>This is our final project</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body, html {
+            font-family: 'Montserrat', sans-serif;
+            background-color: #ffffff;
+            color: #000000;
+            margin: 0;
+            padding: 0;
+        }
+        .navbar {
+            background-color: #000000;
+        }
+        .navbar-brand, .navbar-nav .nav-link {
+            color: #ffffff !important;
+        }
+        .navbar-brand:hover, .navbar-nav .nav-link:hover {
+            color: #ff6200 !important;
+        }
+        .hero-section {
+            background-color: #ff6200;
+            height: 70vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #ffffff;
+            text-align: center;
+        }
+        .hero-section h1 {
+            font-weight: 600;
+            font-size: 3rem;
+            margin-bottom: 20px;
+        }
+        .hero-section p {
+            font-weight: 400;
+            font-size: 1.2rem;
+        }
+        .btn-custom {
+            background-color: #000000;
+            color: #ffffff;
+            font-weight: 600;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .btn-custom:hover {
+            background-color: #ffffff;
+            color: #ff6200;
+            border: 1px solid #ff6200;
+        }
+        .color-section {
+            padding: 50px 0;
+            background-color: #f5f5f5;
+            text-align: center;
+        }
+        .color-section h2 {
+            margin-bottom: 30px;
+            font-size: 2.5rem;
+            font-weight: 600;
+        }
+        .color-card {
+            height: 150px;
+            border-radius: 10px;
+            margin: 10px;
+            color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.2rem;
+            font-weight: 600;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
+        .footer {
+            background-color: #000000;
+            color: #ffffff;
+            text-align: center;
+            padding: 10px 0;
+        }
+        .footer a {
+            color: #ff6200;
+            text-decoration: none;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">{Dev}School Project</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/colors">Colors</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/liveness">Liveness Check</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="hero-section">
+        <div>
+            <h1>Color palette app</h1>
+            <a href="/colors" class="btn btn-custom">Discover Colors</a>
+        </div>
+    </div>
+
+    <div id="color-section" class="color-section">
+        <h2>Dynamic Color Palettes</h2>
+        <div id="color-cards" class="d-flex justify-content-center flex-wrap">
+        </div>
+        <button id="generate-colors-btn" class="btn btn-custom mt-4">Generate New Colors</button>
+    </div>
+
+    <div class="footer">
+        <p>&copy; 2024 {Dev}School Project. Designed by Gular Vlad and Borlovan Andrei <br>
+            <a href="https://github.com/BorlovanAndrei">Visit Andrei GitHub</a>
+            <a href="https://github.com/vguler">Visit Vlad GitHub</a>
+        </p>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        function displayColors(colors) {
+            let colorCardsContainer = $("#color-cards");
+            colorCardsContainer.empty();  
+
+            colors.forEach(color => {
+                let colorCard = `<div class="color-card" style="background-color: ${color}; width: 150px;">
+                                    ${color}
+                                 </div>`;
+                colorCardsContainer.append(colorCard);
+            });
+        }
+
+        function generateNewColors() {
+            $.ajax({
+                url: '/generate-colors',
+                method: 'GET',
+                success: function(response) {
+                    if (response.colors) {
+                        displayColors(response.colors);
+                    } else {
+                        alert("Failed to fetch colors. Please try again.");
+                    }
+                },
+                error: function() {
+                    alert("Error fetching colors from the server.");
+                }
+            });
+        }
+
+        $("#generate-colors-btn").on("click", function() {
+            generateNewColors();
+        });
+
+        $(document).ready(function() {
+            generateNewColors();
+        });
+    </script>
+</body>
+</html>
